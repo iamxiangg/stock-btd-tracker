@@ -1,3 +1,4 @@
+#####TEST CHANGES
 # ==============================
 #  BTD_update.py
 #  Stock_Analysis → Google Sheet
@@ -18,7 +19,7 @@ import pytz
 # 1. Google Sheets authentication
 # -------------------------------------------------
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDS_FILE = "/home/neo/PycharmProjects/PythonProject/aerobic-arcade-377707-80bfc207c8b4.json"
+CREDS_FILE = "/aerobic-arcade-377707-80bfc207c8b4.json"
 
 creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, SCOPE)
 client = gspread.authorize(creds)
@@ -140,7 +141,7 @@ for ticker in tickers:
 
     records.append(row)
     time.sleep(0.6)  # Respect Yahoo Finance
-    
+
 # -------------------------------------------------
 # 5. Build DataFrame (AE → AL)
 # -------------------------------------------------
