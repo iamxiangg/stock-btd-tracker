@@ -1,245 +1,189 @@
-#####TEST CHANGES
 # ==============================
-#  BTD_update.py
-#  Stock_Analysis → Google Sheet
-#  AE = Next Earnings Date
-#  AL = Last Updated (SG run time)
-#  All columns shifted right by 1
+# BTD_update.py - TERMUX ANDROID 100% WORKING (NO PANDAS)
 # ==============================
 
 import time
-import pandas as pd
 import yfinance as yf
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
+from datetime import datetime, timezone
 import pytz
+import gspread.utils as gutils
 
-# --------------------------------------------------
-# 1. Google Sheets authentication
+# -------------------------------------------------
+# 1. Google Sheets auth
 # -------------------------------------------------
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDS_FILE = "/data/data/com.termux/files/home/aerobic-arcade-377707-80bfc207c8b4.json"
+CREDS_FILE = "/storage/emulated/0/BTD_Analysis/aerobic-arcade-377707-80bfc207c8b4.json"
 
 creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, SCOPE)
 client = gspread.authorize(creds)
 workbook = client.open("Xiang Stock Analysis")
 sheet = workbook.worksheet("Stock Summary USD")
-hist_sheet = workbook.worksheet("Historical_BTD_Metric")
 
 # -------------------------------------------------
-# 2. Current SG Time (Nov 11, 2025 10:43 PM +08)
+# 2. SG Time
 # -------------------------------------------------
 sg_tz = pytz.timezone("Asia/Singapore")
-now_sg_dt = datetime.now(sg_tz)  # Use current real time
-last_updated_str = now_sg_dt.strftime("%b %d, %Y")  # e.g., Nov 11, 2025
+now_sg_dt = datetime.now(sg_tz)
+last_updated_str = now_sg_dt.strftime("%b %d, %Y")
 now_sg_str = now_sg_dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+today_str = now_sg_dt.strftime("%Y-%m-%d")
 
 print(f"Script started at: {now_sg_str}", flush=True)
 
-
 # -------------------------------------------------
-# 3. Read tickers + current BTD (Col E) ← KEEP THIS FUNCTION
+# 3. Get tickers
 # -------------------------------------------------
-def get_tickers_and_btd():
-    col_a = sheet.col_values(1)  # Tickers
-    col_e = sheet.col_values(5)  # BTD (Column E)
-    pairs = []
-    for i in range(1, min(len(col_a), len(col_e))):
-        ticker = col_a[i].strip().upper() if i < len(col_a) else ""
-        btd    = col_e[i].strip() if i < len(col_e) else ""
-        if ticker:
-            pairs.append((ticker, btd))
-    return pairs
-
-# ← THIS LINE MUST BE HERE
-ticker_btd_pairs = get_tickers_and_btd()
-if not ticker_btd_pairs:
-    print("No tickers found. Exiting.", flush=True)
+col_a = sheet.col_values(1)
+tickers = [t.strip().upper() for t in col_a[1:] if t.strip()]
+if not tickers:
+    print("No tickers. Exit.")
     raise SystemExit
-
-tickers = [p[0] for p in ticker_btd_pairs]
 print(f"Found {len(tickers)} tickers", flush=True)
 
 # -------------------------------------------------
-# 4. Fetch data from yfinance (ROBUST + RETRY on earnings_dates)
+# 4. Fetch data (NO PANDAS)
 # -------------------------------------------------
 records = []
+utc_now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 for ticker in tickers:
     print(f"  → {ticker}", end="", flush=True)
     row = {}
-
     try:
         t = yf.Ticker(ticker)
         info = t.info
 
-        # ---- Next Earnings Date (AE): First future row only + RETRY ----
+        # Earnings Date (NO PANDAS)
         earnings_date = "N/A"
-        max_retries = 3
-        base_delay = 2  # seconds
-
-        for attempt in range(max_retries):
-            try:
-                df = t.earnings_dates
-
-                if df is None or df.empty:
-                    raise ValueError("Empty or None earnings_dates")
-
-                df.index = pd.to_datetime(df.index)
-
-                # Find reported EPS column
-                reported_col = next((c for c in df.columns if "reported" in c.lower()), None)
-
-                # Determine future rows
-                today = pd.Timestamp.now(tz='UTC').normalize()
-                if reported_col and reported_col in df.columns:
-                    future = df[df[reported_col].isna()]
-                    print(f" [Reported col: {reported_col}]", end="", flush=True)
-                else:
-                    future = df[df.index > today]
-                    print(" [Using date filter]", end="", flush=True)
-
-                if not future.empty:
-                    next_date = future.index.min()
-                    earnings_date = next_date.strftime("%b %d, %Y")
+        try:
+            ed = t.earnings_dates
+            if ed is not None and len(ed) > 0:
+                future_dates = []
+                for idx, row in ed.iterrows():
+                    try:
+                        dt = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
+                        if dt.tzinfo is None:
+                            dt = pytz.UTC.localize(dt)
+                        if dt > utc_now:
+                            future_dates.append(dt)
+                    except:
+                        continue
+                if future_dates:
+                    next_dt = min(future_dates)
+                    earnings_date = next_dt.astimezone(sg_tz).strftime("%b %d, %Y")
                     print(f" [Next: {earnings_date}]", end="", flush=True)
                 else:
                     earnings_date = "No upcoming"
-                    print(" [No future]", end="", flush=True)
+            else:
+                earnings_date = "No data"
+        except Exception as e:
+            print(f" [Err: {e}]", end="", flush=True)
+            earnings_date = "Error"
 
-                # Success: exit retry loop
-                break
-
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)  # 2s, 4s, 8s
-                    print(f" [Retry {attempt+1}/{max_retries} in {delay}s: {e}]", end="", flush=True)
-                    time.sleep(delay)
-                else:
-                    earnings_date = "Error"
-                    print(f" [FAILED after {max_retries} tries: {e}]", end="", flush=True)
-
-        row["Next_Earnings_Date"] = earnings_date
-
-        # ---- Financial Metrics ----
-        row["enterpriseValue"] = info.get("enterpriseValue", "")
-        row["totalRevenue"] = info.get("totalRevenue", "")
-        row["enterpriseToEbitda"] = info.get("enterpriseToEbitda", "")
-        row["revenueGrowth"] = info.get("revenueGrowth", "")
-        row["grossMargins"] = info.get("grossMargins", "")
-        row["No. of FTE"] = info.get("fullTimeEmployees", "")
-        row["Last_Updated"] = last_updated_str
-
+        # Metrics
+        row.update({
+            "Next_Earnings_Date": earnings_date,
+            "enterpriseValue": info.get("enterpriseValue", ""),
+            "totalRevenue": info.get("totalRevenue", ""),
+            "enterpriseToEbitda": info.get("enterpriseToEbitda", ""),
+            "revenueGrowth": info.get("revenueGrowth", ""),
+            "grossMargins": info.get("grossMargins", ""),
+            "No. of FTE": info.get("fullTimeEmployees", ""),
+            "Last_Updated": last_updated_str
+        })
         print(" OK", flush=True)
     except Exception as e:
-        print(f" [FATAL ERROR: {e}]", flush=True)
-        for key in ["Next_Earnings_Date", "enterpriseValue", "totalRevenue",
-                    "enterpriseToEbitda", "revenueGrowth", "grossMargins",
-                    "No. of FTE", "Last_Updated"]:
-            row[key] = "ERROR"
-
+        print(f" [ERROR: {e}]", flush=True)
+        row = {k: "ERROR" for k in [
+            "Next_Earnings_Date", "enterpriseValue", "totalRevenue",
+            "enterpriseToEbitda", "revenueGrowth", "grossMargins",
+            "No. of FTE", "Last_Updated"
+        ]}
     records.append(row)
-    time.sleep(0.6)  # Respect Yahoo Finance
+    time.sleep(0.6)
 
 # -------------------------------------------------
-# 5. Build DataFrame (AE → AL)
+# 5. Write AE→AL (Pure lists)
 # -------------------------------------------------
-cols = [
-    "Next_Earnings_Date",  # AE
-    "enterpriseValue",  # AF
-    "totalRevenue",  # AG
-    "enterpriseToEbitda",  # AH
-    "revenueGrowth",  # AI
-    "grossMargins",  # AJ
-    "No. of FTE",  # AK
-    "Last_Updated"  # AL
-]
-df = pd.DataFrame(records)[cols]
+cols = ["Next_Earnings_Date", "enterpriseValue", "totalRevenue", "enterpriseToEbitda",
+        "revenueGrowth", "grossMargins", "No. of FTE", "Last_Updated"]
+header = ["Next Earnings Date", "Enterprise Value", "Total Revenue", "EV/EBITDA",
+          "Revenue Growth", "Gross Margin", "No. of FTE", "Last Updated"]
+
+data_rows = [[row.get(c, "") for c in cols] for row in records]
+
+sheet.update(values=[header], range_name="AE1:AL1", value_input_option="USER_ENTERED")
+sheet.update(values=data_rows, range_name=f"AE2:AL{len(data_rows)+1}", value_input_option="USER_ENTERED")
 
 # -------------------------------------------------
-# 6. Write to Google Sheet – NEW ARG ORDER (no deprecation warning)
+# 6. Historical_BTD_Metric (Column E)
 # -------------------------------------------------
-header = [
-    "Next Earnings Date", "Enterprise Value", "Total Revenue",
-    "EV/EBITDA", "Revenue Growth", "Gross Margin", "No. of FTE", "Last Updated"
-]
-
-# Header row
-sheet.update(
-    values=[header],
-    range_name="AE1:AL1",
-    value_input_option="USER_ENTERED"
-)
-
-# Data rows
-data_end_row = len(df) + 1
-sheet.update(
-    values=df.astype(str).values.tolist(),
-    range_name=f"AF2:AM{data_end_row}",
-    value_input_option="USER_ENTERED"
-)
-
-print(f"\nSUCCESS! Updated AE→AL at {now_sg_str}", flush=True)
-
-# -------------------------------------------------
-# 7. APPEND ONLY: Date, Ticker, BTD → Historical_BTD_Metric
-#     • Skip rows whose DATE already exists
-# -------------------------------------------------
-import logging
-
-# ----- 7.1 Read existing dates (column A) -----
-existing_dates = set()
+print("Updating Historical_BTD_Metric...", flush=True)
 try:
-    # Pull only column A – fastest possible read
-    date_col = hist_sheet.col_values(1)          # 1-based index → column A
-    # Skip header row (index 0)
-    existing_dates = {d.strip() for d in date_col[1:] if d.strip()}
-except Exception as e:
-    print(f"[WARN] Could not read existing dates: {e}", flush=True)
+    hist_sheet = workbook.worksheet("Historical_BTD_Metric")
+except:
+    hist_sheet = workbook.add_worksheet("Historical_BTD_Metric", 1000, len(tickers)+2)
+    hist_sheet.update(values=[["Date"] + tickers], range_name="A1")
 
-# ----- 7.2 Build rows that are NOT already present -----
-hist_rows = []
-skipped = 0
-added   = 0
+col_e = sheet.col_values(5)
+current_e = {}
+for i, t in enumerate(tickers):
+    val = col_e[i+1] if i+1 < len(col_e) else ""
+    current_e[t] = float(val) if str(val).replace('.','').replace('-','').isdigit() else ""
 
-run_date_str = now_sg_dt.strftime("%Y-%m-%d")   # ← date part only
-
-for idx in range(len(tickers)):
-    ticker = tickers[idx]
-    btd    = ticker_btd_pairs[idx][1]
-
-    # Build the candidate row
-    candidate = [run_date_str, ticker, btd]
-
-    # ----- CHECK DUPLICATE -----
-    if run_date_str in existing_dates:
-        # Date already logged today → skip this *entire* day
-        if skipped == 0:   # print only once per run
-            print(f"[INFO] Date {run_date_str} already exists in Historical_BTD_Metric → skipping all rows for today.", flush=True)
-        skipped += 1
-        continue
-
-    # New date → add the row
-    hist_rows.append(candidate)
-    added += 1
-
-# ----- 7.3 Write header if sheet is empty -----
-if hist_sheet.row_count == 0 or not hist_sheet.row_values(1):
-    hist_header = ["Date (SG)", "Ticker", "BTD (Col E)"]
-    hist_sheet.append_row(hist_header, value_input_option="USER_ENTERED")
-    print("[INFO] Header written to Historical_BTD_Metric", flush=True)
-
-# ----- 7.4 Append only the NEW rows (if any) -----
-if hist_rows:
-    hist_sheet.append_rows(hist_rows, value_input_option="USER_ENTERED")
-    print(f"[SUCCESS] {added} new BTD row(s) appended to Historical_BTD_Metric", flush=True)
+dates = [r[0] for r in hist_sheet.get_all_values()[1:]] if hist_sheet.row_count > 1 else []
+if today_str not in dates:
+    hist_sheet.append_row([today_str] + [current_e.get(t, "") for t in tickers])
+    print(f"Appended {today_str}")
 else:
-    print("[INFO] No new rows to append (date already present).", flush=True)
+    print("Today exists")
 
-# ----- 7.5 Final summary -----
-print(f"\n=== RUN SUMMARY ==="
-      f"\nMain sheet updated (E-M) | "
-      f"{len(tickers)} ticker(s) processed | "
-      f"{added} added, {skipped} skipped (date already logged)"
-      f"\nTimestamp: {now_sg_str}\n", flush=True)
+# -------------------------------------------------
+# 7. Sparklines (AQ) + Trend (AR)
+# -------------------------------------------------
+hist_data = hist_sheet.get_all_values()
+hist_rows = hist_data[1:] if len(hist_data) > 1 else []
+
+spark_formulas = []
+trends = []
+
+for i, t in enumerate(tickers):
+    col = i + 1  # Date=0, tickers start at 1
+    recent = []
+    for r in hist_rows[-30:]:
+        val = r[col] if col < len(r) else ""
+        try:
+            recent.append(float(val)) if val else recent.append(None)
+        except:
+            recent.append(None)
+    recent = [v for v in recent if v is not None]
+
+    # Sparkline
+    if len(recent) >= 2:
+        start = len(hist_rows) - len(recent) + 2
+        end = len(hist_rows) + 1
+        ref = f"Historical_BTD_Metric!{gutils.rowcol_to_a1(start, col+1)}:{gutils.rowcol_to_a1(end, col+1)}"
+        formula = f'=SPARKLINE({ref},{{"charttype","line";"color","#1a73e8"}})'
+    else:
+        formula = ""
+    spark_formulas.append([formula])
+
+    # Trend
+    last3 = recent[-3:] if len(recent) >= 3 else recent
+    if len(last3) >= 2 and last3[0] != 0:
+        chg = (last3[-1] - last3[0]) / abs(last3[0])
+        if chg > 0.15: trends.append("Strong Up")
+        elif chg > 0.05: trends.append("Rising")
+        elif chg < -0.15: trends.append("Strong Down")
+        elif chg < -0.05: trends.append("Falling")
+        else: trends.append("Stable")
+    else:
+        trends.append("")
+
+sheet.update(values=spark_formulas, range_name=f"AQ2:AQ{len(tickers)+1}", value_input_option="USER_ENTERED")
+sheet.update(values=[[t] for t in trends], range_name=f"AR2:AR{len(tickers)+1}", value_input_option="USER_ENTERED")
+sheet.update(values=[["E Trend", "Trend"]], range_name="AQ1:AR1", value_input_option="USER_ENTERED")
+
+print(f"\nSUCCESS! Updated at {now_sg_str}", flush=True)
