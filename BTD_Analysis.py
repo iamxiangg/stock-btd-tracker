@@ -14,7 +14,7 @@ import gspread.utils as gutils
 # 1. Google Sheets auth
 # -------------------------------------------------
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDS_FILE = "/storage/emulated/0/BTD_Analysis/aerobic-arcade-377707-80bfc207c8b4.json"
+CREDS_FILE = "/storage/emulated/0/Download/aerobic-arcade-377707-80bfc207c8b4.json"
 
 creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, SCOPE)
 client = gspread.authorize(creds)
