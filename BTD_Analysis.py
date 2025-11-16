@@ -19,7 +19,7 @@ import pytz
 # 1. Google Sheets authentication
 # -------------------------------------------------
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDS_FILE = "/home/neo/PycharmProjects/PythonProject/aerobic-arcade-377707-80bfc207c8b4.json"
+CREDS_FILE = "/data/data/com.termux/files/home/BTD_Analysis/PycharmProjects/PythonProject/aerobic-arcade-377707-80bfc207c8b4.json"
 
 creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, SCOPE)
 client = gspread.authorize(creds)
