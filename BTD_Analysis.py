@@ -15,11 +15,11 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import pytz
 
-# -------------------------------------------------
+# --------------------------------------------------
 # 1. Google Sheets authentication
 # -------------------------------------------------
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDS_FILE = "/aerobic-arcade-377707-80bfc207c8b4.json"
+CREDS_FILE = "/data/data/com.termux/files/home/aerobic-arcade-377707-80bfc207c8b4.json"
 
 creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, SCOPE)
 client = gspread.authorize(creds)
